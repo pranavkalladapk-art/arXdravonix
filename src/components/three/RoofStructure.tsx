@@ -8,9 +8,11 @@ interface RoofStructureProps {
   progressRef: React.MutableRefObject<number>;
 }
 
-const METAL_DARK = "#4a4e56";
-const METAL_BARREL = "#9aa0aa";
+const METAL_DARK = "#33363c";
+const METAL_BARREL = "#4b4f57";
+const METAL_TRIM = "#2a2d32";
 const CYAN = "#00d5ff";
+const DEPTH = 3.6;
 
 const RIDGE = new THREE.Vector3(0, 1.5, 0);
 const LEFT_EAVE = new THREE.Vector3(-3.2, -1.1, 0);
@@ -55,6 +57,10 @@ interface PartConfig {
   scatterRot: [number, number, number];
 }
 
+// Note: for parts rotated purely about Z (baseRot=[0,0,angle]), local Z is
+// invariant under that rotation, so any dimension that must span the roof's
+// depth (world Z, between the two rafters) is placed in the box's Z slot —
+// only the slope-aligned length (X) and thickness (Y) rotate with the pitch.
 function usePart({ base, baseRot, scatter, scatterRot }: PartConfig, progressRef: React.MutableRefObject<number>) {
   const ref = useRef<THREE.Group>(null);
   const target = useMemo(() => new THREE.Vector3(), []);
@@ -171,32 +177,63 @@ function RoofPanel({
     progressRef
   );
 
-  const ribs = useMemo(() => [-1.1, 0, 1.1], []);
+  const ribCount = 13;
+  const ribs = useMemo(
+    () => Array.from({ length: ribCount }, (_, i) => -1.68 + i * (3.36 / (ribCount - 1))),
+    []
+  );
 
   return (
     <group ref={ref}>
       <mesh castShadow receiveShadow>
-        <boxGeometry args={[segLength - 0.04, 3.6, 0.05]} />
-        <meshStandardMaterial color={METAL_BARREL} metalness={0.85} roughness={0.3} />
+        <boxGeometry args={[segLength - 0.01, 0.05, DEPTH]} />
+        <meshStandardMaterial color={METAL_BARREL} metalness={0.6} roughness={0.55} />
       </mesh>
       {ribs.map((rz, i) => (
-        <mesh key={i} position={[0, rz, 0.035]} castShadow>
-          <boxGeometry args={[segLength - 0.06, 0.06, 0.03]} />
-          <meshStandardMaterial color={METAL_DARK} metalness={0.8} roughness={0.4} />
+        <mesh key={i} position={[0, 0.045, rz]} castShadow>
+          <boxGeometry args={[segLength - 0.02, 0.028, 0.05]} />
+          <meshStandardMaterial color={METAL_DARK} metalness={0.55} roughness={0.6} />
         </mesh>
       ))}
-      <mesh position={[segLength / 2 - 0.02, 0, 0.04]}>
-        <boxGeometry args={[0.02, 3.6, 0.03]} />
+      <mesh position={[segLength / 2 - 0.01, 0.03, 0]}>
+        <boxGeometry args={[0.015, 0.02, DEPTH]} />
         <meshStandardMaterial color={CYAN} emissive={CYAN} emissiveIntensity={1.8} toneMapped={false} />
       </mesh>
     </group>
   );
 }
 
-function RidgeCap({ progressRef }: { progressRef: React.MutableRefObject<number> }) {
+function RidgeCapFlap({ side, progressRef }: { side: -1 | 1; progressRef: React.MutableRefObject<number> }) {
+  const slope = side === -1 ? LEFT_SLOPE : RIGHT_SLOPE;
+  const angle = slopeAngle(slope);
+  const normal = slopeOutwardNormal(slope);
+  const flapLength = 0.55;
+  const anchor = pointOnSlope(slope, 0.93);
+
   const ref = usePart(
     {
-      base: [RIDGE.x, RIDGE.y + 0.12, 0],
+      base: [anchor.x + normal.x * 0.05, anchor.y + normal.y * 0.05, 0],
+      baseRot: [0, 0, angle],
+      scatter: [side * 1.5, 3.2, side * 2],
+      scatterRot: [side * 1.8, side * 2.6, 1.2],
+    },
+    progressRef
+  );
+
+  return (
+    <group ref={ref}>
+      <mesh castShadow>
+        <boxGeometry args={[flapLength, 0.04, DEPTH + 0.15]} />
+        <meshStandardMaterial color={METAL_TRIM} metalness={0.7} roughness={0.4} />
+      </mesh>
+    </group>
+  );
+}
+
+function RidgeSeam({ progressRef }: { progressRef: React.MutableRefObject<number> }) {
+  const ref = usePart(
+    {
+      base: [RIDGE.x, RIDGE.y + 0.13, 0],
       baseRot: [Math.PI / 2, 0, 0],
       scatter: [0, 3.5, 0],
       scatterRot: [1.8, 2.4, 0],
@@ -207,7 +244,34 @@ function RidgeCap({ progressRef }: { progressRef: React.MutableRefObject<number>
   return (
     <group ref={ref}>
       <mesh castShadow>
-        <cylinderGeometry args={[0.1, 0.1, 3.75, 16]} />
+        <cylinderGeometry args={[0.05, 0.05, DEPTH + 0.2, 16]} />
+        <meshStandardMaterial color={CYAN} emissive={CYAN} emissiveIntensity={1.6} toneMapped={false} />
+      </mesh>
+    </group>
+  );
+}
+
+function EaveFascia({ slope, progressRef }: { slope: Slope; progressRef: React.MutableRefObject<number> }) {
+  const normal = slopeOutwardNormal(slope);
+
+  const ref = usePart(
+    {
+      base: [slope.low.x, slope.low.y - 0.18, 0],
+      baseRot: [0, 0, 0],
+      scatter: [normal.x * 2.2, -1.6 + normal.y * 1.4, slope.side * 2.4],
+      scatterRot: [slope.side * 1.6, slope.side * 2.2, 1.4],
+    },
+    progressRef
+  );
+
+  return (
+    <group ref={ref}>
+      <mesh castShadow receiveShadow>
+        <boxGeometry args={[0.3, 0.08, DEPTH + 0.1]} />
+        <meshStandardMaterial color={METAL_TRIM} metalness={0.7} roughness={0.4} />
+      </mesh>
+      <mesh position={[0.13, 0.042, 0]}>
+        <boxGeometry args={[0.025, 0.02, DEPTH + 0.1]} />
         <meshStandardMaterial color={CYAN} emissive={CYAN} emissiveIntensity={1.6} toneMapped={false} />
       </mesh>
     </group>
@@ -225,6 +289,8 @@ function RoofSide({ slope, progressRef }: { slope: Slope; progressRef: React.Mut
       {[0, 1, 2, 3].map((i) => (
         <RoofPanel key={i} slope={slope} segmentIndex={i} progressRef={progressRef} />
       ))}
+      <RidgeCapFlap side={slope.side} progressRef={progressRef} />
+      <EaveFascia slope={slope} progressRef={progressRef} />
     </>
   );
 }
@@ -242,7 +308,7 @@ export default function RoofStructure({ progressRef }: RoofStructureProps) {
     <group ref={outer} rotation={[0.05, -0.35, 0]}>
       <RoofSide slope={LEFT_SLOPE} progressRef={progressRef} />
       <RoofSide slope={RIGHT_SLOPE} progressRef={progressRef} />
-      <RidgeCap progressRef={progressRef} />
+      <RidgeSeam progressRef={progressRef} />
     </group>
   );
 }
