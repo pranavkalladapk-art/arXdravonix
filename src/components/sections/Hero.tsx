@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { HiOutlineArrowUpRight, HiOutlineChevronDown } from "react-icons/hi2";
 import MagneticButton from "@/components/ui/MagneticButton";
+import SceneErrorBoundary from "@/components/three/SceneErrorBoundary";
+import SceneFallback from "@/components/three/SceneFallback";
 import { company } from "@/data/content";
+import { isWebglSupported } from "@/lib/webgl";
 
 const HeroScene = dynamic(() => import("@/components/three/HeroScene"), {
   ssr: false,
@@ -19,6 +22,7 @@ export default function Hero() {
   const sectionRef = useRef<HTMLElement>(null);
   const scrollRef = useRef(0);
   const pointerRef = useRef({ x: 0, y: 0 });
+  const [webglOk] = useState(isWebglSupported);
 
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
@@ -54,7 +58,13 @@ export default function Hero() {
 
       {/* 3D Scene */}
       <div className="absolute inset-0">
-        <HeroScene scrollRef={scrollRef} pointerRef={pointerRef} />
+        {webglOk ? (
+          <SceneErrorBoundary fallback={<SceneFallback />}>
+            <HeroScene scrollRef={scrollRef} pointerRef={pointerRef} />
+          </SceneErrorBoundary>
+        ) : (
+          <SceneFallback />
+        )}
       </div>
 
       {/* Vignette */}
