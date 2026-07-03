@@ -12,13 +12,35 @@ const METAL_DARK = "#4a4e56";
 const METAL_BARREL = "#9aa0aa";
 const CYAN = "#00d5ff";
 
-const LOW = new THREE.Vector3(-3, -1.2, 0);
-const HIGH = new THREE.Vector3(3, 1.2, 0);
-const SLOPE_ANGLE = Math.atan2(HIGH.y - LOW.y, HIGH.x - LOW.x);
-const SLOPE_LENGTH = LOW.distanceTo(HIGH);
+const RIDGE = new THREE.Vector3(0, 1.5, 0);
+const LEFT_EAVE = new THREE.Vector3(-3.2, -1.1, 0);
+const RIGHT_EAVE = new THREE.Vector3(3.2, -1.1, 0);
 
-function pointOnSlope(t: number) {
-  return new THREE.Vector3().lerpVectors(LOW, HIGH, t);
+interface Slope {
+  low: THREE.Vector3;
+  high: THREE.Vector3;
+  side: -1 | 1;
+}
+
+const LEFT_SLOPE: Slope = { low: LEFT_EAVE, high: RIDGE, side: -1 };
+const RIGHT_SLOPE: Slope = { low: RIGHT_EAVE, high: RIDGE, side: 1 };
+
+function pointOnSlope(slope: Slope, t: number) {
+  return new THREE.Vector3().lerpVectors(slope.low, slope.high, t);
+}
+
+function slopeAngle(slope: Slope) {
+  return Math.atan2(slope.high.y - slope.low.y, slope.high.x - slope.low.x);
+}
+
+function slopeOutwardNormal(slope: Slope) {
+  const dx = slope.high.x - slope.low.x;
+  const dy = slope.high.y - slope.low.y;
+  const n =
+    slope.side === 1
+      ? new THREE.Vector2(dy, -dx)
+      : new THREE.Vector2(-dy, dx);
+  return n.normalize();
 }
 
 function seededRandom(seed: number) {
@@ -57,15 +79,17 @@ function usePart({ base, baseRot, scatter, scatterRot }: PartConfig, progressRef
   return ref;
 }
 
-function Rafter({ z, progressRef }: { z: number; progressRef: React.MutableRefObject<number> }) {
-  const mid = pointOnSlope(0.5);
-  const seed = z > 0 ? 1 : -1;
+function Rafter({ slope, z, progressRef }: { slope: Slope; z: number; progressRef: React.MutableRefObject<number> }) {
+  const angle = slopeAngle(slope);
+  const length = slope.low.distanceTo(slope.high);
+  const mid = pointOnSlope(slope, 0.5);
+  const seedBase = slope.side * 5 + z;
   const ref = usePart(
     {
       base: [mid.x, mid.y, z],
-      baseRot: [0, 0, SLOPE_ANGLE],
-      scatter: [seed * 2.2, 2.4 + seededRandom(z + 1) * 1.2, seed * 1.8],
-      scatterRot: [seed * 1.4, seed * 2.1, 1.6],
+      baseRot: [0, 0, angle],
+      scatter: [slope.side * 2.2, 2.4 + seededRandom(seedBase + 1) * 1.2, Math.sign(z || 1) * 1.8],
+      scatterRot: [slope.side * 1.4, slope.side * 2.1, 1.6],
     },
     progressRef
   );
@@ -73,20 +97,21 @@ function Rafter({ z, progressRef }: { z: number; progressRef: React.MutableRefOb
   return (
     <group ref={ref}>
       <mesh castShadow receiveShadow>
-        <boxGeometry args={[SLOPE_LENGTH, 0.28, 0.18]} />
+        <boxGeometry args={[length, 0.26, 0.16]} />
         <meshStandardMaterial color={METAL_DARK} metalness={0.9} roughness={0.35} />
       </mesh>
     </group>
   );
 }
 
-function Purlin({ t, progressRef }: { t: number; progressRef: React.MutableRefObject<number> }) {
-  const p = pointOnSlope(t);
-  const r1 = seededRandom(t * 7.1 + 1);
-  const r2 = seededRandom(t * 7.1 + 2);
-  const r3 = seededRandom(t * 7.1 + 3);
-  const r4 = seededRandom(t * 7.1 + 4);
-  const r5 = seededRandom(t * 7.1 + 5);
+function Purlin({ slope, t, progressRef }: { slope: Slope; t: number; progressRef: React.MutableRefObject<number> }) {
+  const p = pointOnSlope(slope, t);
+  const seedBase = slope.side * 20 + t * 7.1;
+  const r1 = seededRandom(seedBase + 1);
+  const r2 = seededRandom(seedBase + 2);
+  const r3 = seededRandom(seedBase + 3);
+  const r4 = seededRandom(seedBase + 4);
+  const r5 = seededRandom(seedBase + 5);
   const ref = usePart(
     {
       base: [p.x, p.y, 0],
@@ -100,35 +125,42 @@ function Purlin({ t, progressRef }: { t: number; progressRef: React.MutableRefOb
   return (
     <group ref={ref}>
       <mesh castShadow receiveShadow>
-        <cylinderGeometry args={[0.08, 0.08, 3.7, 12]} />
+        <cylinderGeometry args={[0.07, 0.07, 3.7, 12]} />
         <meshStandardMaterial color={METAL_DARK} metalness={0.9} roughness={0.35} />
       </mesh>
     </group>
   );
 }
 
-function RoofPanel({ segmentIndex, progressRef }: { segmentIndex: number; progressRef: React.MutableRefObject<number> }) {
+function RoofPanel({
+  slope,
+  segmentIndex,
+  progressRef,
+}: {
+  slope: Slope;
+  segmentIndex: number;
+  progressRef: React.MutableRefObject<number>;
+}) {
   const t0 = segmentIndex * 0.25;
   const t1 = t0 + 0.25;
-  const start = pointOnSlope(t0);
-  const end = pointOnSlope(t1);
+  const start = pointOnSlope(slope, t0);
+  const end = pointOnSlope(slope, t1);
   const mid = new THREE.Vector3().lerpVectors(start, end, 0.5);
   const segLength = start.distanceTo(end);
-  const normalOffset = 0.16;
-  const s1 = seededRandom(segmentIndex * 3.3 + 11);
-  const s2 = seededRandom(segmentIndex * 3.3 + 12);
-  const s3 = seededRandom(segmentIndex * 3.3 + 13);
-  const s4 = seededRandom(segmentIndex * 3.3 + 14);
-  const s5 = seededRandom(segmentIndex * 3.3 + 15);
+  const angle = slopeAngle(slope);
+  const normal = slopeOutwardNormal(slope);
+  const normalOffset = 0.14;
+  const seedBase = slope.side * 33 + segmentIndex * 3.3;
+  const s1 = seededRandom(seedBase + 11);
+  const s2 = seededRandom(seedBase + 12);
+  const s3 = seededRandom(seedBase + 13);
+  const s4 = seededRandom(seedBase + 14);
+  const s5 = seededRandom(seedBase + 15);
 
   const ref = usePart(
     {
-      base: [
-        mid.x - Math.sin(SLOPE_ANGLE) * normalOffset,
-        mid.y + Math.cos(SLOPE_ANGLE) * normalOffset,
-        0,
-      ],
-      baseRot: [0, 0, SLOPE_ANGLE],
+      base: [mid.x + normal.x * normalOffset, mid.y + normal.y * normalOffset, 0],
+      baseRot: [0, 0, angle],
       scatter: [
         (s1 - 0.5) * 3.5,
         3 + s2 * 2,
@@ -161,6 +193,42 @@ function RoofPanel({ segmentIndex, progressRef }: { segmentIndex: number; progre
   );
 }
 
+function RidgeCap({ progressRef }: { progressRef: React.MutableRefObject<number> }) {
+  const ref = usePart(
+    {
+      base: [RIDGE.x, RIDGE.y + 0.12, 0],
+      baseRot: [Math.PI / 2, 0, 0],
+      scatter: [0, 3.5, 0],
+      scatterRot: [1.8, 2.4, 0],
+    },
+    progressRef
+  );
+
+  return (
+    <group ref={ref}>
+      <mesh castShadow>
+        <cylinderGeometry args={[0.1, 0.1, 3.75, 16]} />
+        <meshStandardMaterial color={CYAN} emissive={CYAN} emissiveIntensity={1.6} toneMapped={false} />
+      </mesh>
+    </group>
+  );
+}
+
+function RoofSide({ slope, progressRef }: { slope: Slope; progressRef: React.MutableRefObject<number> }) {
+  return (
+    <>
+      <Rafter slope={slope} z={-1.8} progressRef={progressRef} />
+      <Rafter slope={slope} z={1.8} progressRef={progressRef} />
+      {[0, 0.25, 0.5, 0.75, 1].map((t) => (
+        <Purlin key={t} slope={slope} t={t} progressRef={progressRef} />
+      ))}
+      {[0, 1, 2, 3].map((i) => (
+        <RoofPanel key={i} slope={slope} segmentIndex={i} progressRef={progressRef} />
+      ))}
+    </>
+  );
+}
+
 export default function RoofStructure({ progressRef }: RoofStructureProps) {
   const outer = useRef<THREE.Group>(null);
 
@@ -171,15 +239,10 @@ export default function RoofStructure({ progressRef }: RoofStructureProps) {
   });
 
   return (
-    <group ref={outer} rotation={[0.12, -0.5, 0]}>
-      <Rafter z={-1.8} progressRef={progressRef} />
-      <Rafter z={1.8} progressRef={progressRef} />
-      {[0, 0.25, 0.5, 0.75, 1].map((t) => (
-        <Purlin key={t} t={t} progressRef={progressRef} />
-      ))}
-      {[0, 1, 2, 3].map((i) => (
-        <RoofPanel key={i} segmentIndex={i} progressRef={progressRef} />
-      ))}
+    <group ref={outer} rotation={[0.05, -0.35, 0]}>
+      <RoofSide slope={LEFT_SLOPE} progressRef={progressRef} />
+      <RoofSide slope={RIGHT_SLOPE} progressRef={progressRef} />
+      <RidgeCap progressRef={progressRef} />
     </group>
   );
 }

@@ -1,21 +1,13 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import Reveal from "@/components/ui/Reveal";
 import SectionHeading from "@/components/ui/SectionHeading";
 import { services } from "@/data/content";
 
-const SparkCanvas = dynamic(() => import("@/components/three/SparkCanvas"), {
-  ssr: false,
-});
-
 const machining = services.find((s) => s.id === "machining")!;
 const fabrication = services.find((s) => s.id === "fabrication")!;
 
-const panels = [
-  { service: machining, origin: 0.35 },
-  { service: fabrication, origin: 0.65 },
-];
+const panels = [machining, fabrication];
 
 export default function MachiningFabrication() {
   return (
@@ -30,13 +22,10 @@ export default function MachiningFabrication() {
         />
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {panels.map(({ service, origin }, i) => (
+          {panels.map((service, i) => (
             <Reveal key={service.id} delay={i * 0.1}>
               <div className="group relative h-[480px] overflow-hidden rounded-3xl border border-border bg-bg">
-                <SparkCanvas
-                  originX={origin}
-                  className="absolute inset-0 h-full w-full opacity-90 transition-opacity duration-500 group-hover:opacity-100"
-                />
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(0,213,255,0.08),transparent_65%)] opacity-70 transition-opacity duration-500 group-hover:opacity-100" />
                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-bg via-bg/30 to-transparent" />
                 <div className="blueprint-grid pointer-events-none absolute inset-0 opacity-20" />
 
