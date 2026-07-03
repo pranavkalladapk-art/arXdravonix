@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo } from "react";
+import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
@@ -8,11 +8,19 @@ interface RoofStructureProps {
   progressRef: React.MutableRefObject<number>;
 }
 
-const METAL_DARK = "#33363c";
-const METAL_BARREL = "#4b4f57";
-const METAL_TRIM = "#2a2d32";
+// Stage 1 (0.00–0.33): bare steel skeleton — columns, rafters, purlins, ridge beam.
+// Stage 2 (0.33–0.66): corrugated panels install sheet by sheet over the frame.
+// Stage 3 (0.66–1.00): ridge cap, fascia, gutters, downpipes, and cyan seal glow finish the roof.
+
+const STEEL = "#3a3d43";
+const STEEL_DARK = "#25272b";
+const PANEL = "#1c1e21";
+const PANEL_RIB = "#141516";
+const TRIM = "#202226";
 const CYAN = "#00d5ff";
+
 const DEPTH = 3.6;
+const GROUND_Y = -2.15;
 
 const RIDGE = new THREE.Vector3(0, 1.5, 0);
 const LEFT_EAVE = new THREE.Vector3(-3.2, -1.1, 0);
@@ -26,6 +34,8 @@ interface Slope {
 
 const LEFT_SLOPE: Slope = { low: LEFT_EAVE, high: RIDGE, side: -1 };
 const RIGHT_SLOPE: Slope = { low: RIGHT_EAVE, high: RIDGE, side: 1 };
+const SLOPES = [LEFT_SLOPE, RIGHT_SLOPE];
+const COLUMN_Z = [-1.8, -0.9, 0, 0.9, 1.8];
 
 function pointOnSlope(slope: Slope, t: number) {
   return new THREE.Vector3().lerpVectors(slope.low, slope.high, t);
@@ -38,113 +48,163 @@ function slopeAngle(slope: Slope) {
 function slopeOutwardNormal(slope: Slope) {
   const dx = slope.high.x - slope.low.x;
   const dy = slope.high.y - slope.low.y;
-  const n =
-    slope.side === 1
-      ? new THREE.Vector2(dy, -dx)
-      : new THREE.Vector2(-dy, dx);
+  const n = slope.side === 1 ? new THREE.Vector2(dy, -dx) : new THREE.Vector2(-dy, dx);
   return n.normalize();
 }
 
-function seededRandom(seed: number) {
-  const x = Math.sin(seed * 12.9898) * 43758.5453;
-  return x - Math.floor(x);
+function stageLocal(progress: number, start: number, end: number) {
+  return THREE.MathUtils.clamp((progress - start) / (end - start), 0, 1);
 }
 
-interface PartConfig {
-  base: [number, number, number];
-  baseRot: [number, number, number];
-  scatter: [number, number, number];
-  scatterRot: [number, number, number];
+function staggered(local: number, index: number, count: number, window = 0.2) {
+  const start = (index / count) * (1 - window);
+  return THREE.MathUtils.clamp((local - start) / window, 0, 1);
 }
 
-// Note: for parts rotated purely about Z (baseRot=[0,0,angle]), local Z is
-// invariant under that rotation, so any dimension that must span the roof's
-// depth (world Z, between the two rafters) is placed in the box's Z slot —
-// only the slope-aligned length (X) and thickness (Y) rotate with the pitch.
-function usePart({ base, baseRot, scatter, scatterRot }: PartConfig, progressRef: React.MutableRefObject<number>) {
+// Fades + scales a group in/out based on a per-frame reveal target (0–1), driven
+// by the shared scroll progress. Deterministic and monotonic — no scatter, no
+// randomness, just a clean grow/fade toward the part's fixed installed position.
+function RevealGroup({
+  position,
+  rotation,
+  getReveal,
+  children,
+}: {
+  position: [number, number, number];
+  rotation?: [number, number, number];
+  getReveal: () => number;
+  children: React.ReactNode;
+}) {
   const ref = useRef<THREE.Group>(null);
-  const target = useMemo(() => new THREE.Vector3(), []);
-  const targetRot = useMemo(() => new THREE.Euler(), []);
 
   useFrame((_, delta) => {
     if (!ref.current) return;
-    const p = progressRef.current;
-    const inv = 1 - p;
-    target.set(base[0] + scatter[0] * inv, base[1] + scatter[1] * inv, base[2] + scatter[2] * inv);
-    targetRot.set(
-      baseRot[0] + scatterRot[0] * inv,
-      baseRot[1] + scatterRot[1] * inv,
-      baseRot[2] + scatterRot[2] * inv
-    );
-    ref.current.position.lerp(target, Math.min(delta * 5, 1));
-    ref.current.rotation.x += (targetRot.x - ref.current.rotation.x) * Math.min(delta * 5, 1);
-    ref.current.rotation.y += (targetRot.y - ref.current.rotation.y) * Math.min(delta * 5, 1);
-    ref.current.rotation.z += (targetRot.z - ref.current.rotation.z) * Math.min(delta * 5, 1);
+    const target = Math.max(getReveal(), 0.0001);
+    const next = THREE.MathUtils.lerp(ref.current.scale.x, target, Math.min(delta * 5, 1));
+    ref.current.scale.setScalar(next);
+    ref.current.visible = next > 0.01;
+    ref.current.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      if (mat) {
+        mat.transparent = true;
+        mat.opacity = next;
+      }
+    });
   });
 
-  return ref;
+  return (
+    <group ref={ref} position={position} rotation={rotation ?? [0, 0, 0]}>
+      {children}
+    </group>
+  );
 }
 
-function Rafter({ slope, z, progressRef }: { slope: Slope; z: number; progressRef: React.MutableRefObject<number> }) {
+function Column({
+  slope,
+  z,
+  progressRef,
+}: {
+  slope: Slope;
+  z: number;
+  progressRef: React.MutableRefObject<number>;
+}) {
+  const height = slope.low.y - GROUND_Y;
+  const midY = (slope.low.y + GROUND_Y) / 2;
+
+  return (
+    <RevealGroup
+      position={[slope.low.x, midY, z]}
+      getReveal={() => stageLocal(progressRef.current, 0, 0.1)}
+    >
+      <mesh castShadow receiveShadow>
+        <boxGeometry args={[0.16, height, 0.16]} />
+        <meshStandardMaterial color={STEEL} metalness={0.85} roughness={0.4} />
+      </mesh>
+      <mesh position={[0, -height / 2 - 0.02, 0]} castShadow>
+        <boxGeometry args={[0.34, 0.04, 0.34]} />
+        <meshStandardMaterial color={STEEL_DARK} metalness={0.8} roughness={0.4} />
+      </mesh>
+    </RevealGroup>
+  );
+}
+
+function Rafter({
+  slope,
+  z,
+  progressRef,
+}: {
+  slope: Slope;
+  z: number;
+  progressRef: React.MutableRefObject<number>;
+}) {
   const angle = slopeAngle(slope);
   const length = slope.low.distanceTo(slope.high);
   const mid = pointOnSlope(slope, 0.5);
-  const seedBase = slope.side * 5 + z;
-  const ref = usePart(
-    {
-      base: [mid.x, mid.y, z],
-      baseRot: [0, 0, angle],
-      scatter: [slope.side * 2.2, 2.4 + seededRandom(seedBase + 1) * 1.2, Math.sign(z || 1) * 1.8],
-      scatterRot: [slope.side * 1.4, slope.side * 2.1, 1.6],
-    },
-    progressRef
-  );
 
   return (
-    <group ref={ref}>
+    <RevealGroup
+      position={[mid.x, mid.y, z]}
+      rotation={[0, 0, angle]}
+      getReveal={() => stageLocal(progressRef.current, 0, 0.12)}
+    >
       <mesh castShadow receiveShadow>
         <boxGeometry args={[length, 0.26, 0.16]} />
-        <meshStandardMaterial color={METAL_DARK} metalness={0.9} roughness={0.35} />
+        <meshStandardMaterial color={STEEL} metalness={0.9} roughness={0.35} />
       </mesh>
-    </group>
+    </RevealGroup>
   );
 }
 
-function Purlin({ slope, t, progressRef }: { slope: Slope; t: number; progressRef: React.MutableRefObject<number> }) {
+function Purlin({
+  slope,
+  t,
+  progressRef,
+}: {
+  slope: Slope;
+  t: number;
+  progressRef: React.MutableRefObject<number>;
+}) {
   const p = pointOnSlope(slope, t);
-  const seedBase = slope.side * 20 + t * 7.1;
-  const r1 = seededRandom(seedBase + 1);
-  const r2 = seededRandom(seedBase + 2);
-  const r3 = seededRandom(seedBase + 3);
-  const r4 = seededRandom(seedBase + 4);
-  const r5 = seededRandom(seedBase + 5);
-  const ref = usePart(
-    {
-      base: [p.x, p.y, 0],
-      baseRot: [Math.PI / 2, 0, 0],
-      scatter: [(r1 - 0.5) * 3, 1.8 + r2 * 1.5, (r3 - 0.5) * 4],
-      scatterRot: [r4 * 2, r5 * 3, r1 * 2],
-    },
-    progressRef
-  );
 
   return (
-    <group ref={ref}>
+    <RevealGroup
+      position={[p.x, p.y, 0]}
+      rotation={[Math.PI / 2, 0, 0]}
+      getReveal={() => stageLocal(progressRef.current, 0.04, 0.18)}
+    >
       <mesh castShadow receiveShadow>
-        <cylinderGeometry args={[0.07, 0.07, 3.7, 12]} />
-        <meshStandardMaterial color={METAL_DARK} metalness={0.9} roughness={0.35} />
+        <cylinderGeometry args={[0.07, 0.07, DEPTH + 0.1, 12]} />
+        <meshStandardMaterial color={STEEL} metalness={0.9} roughness={0.35} />
       </mesh>
-    </group>
+    </RevealGroup>
+  );
+}
+
+function RidgeBeam({ progressRef }: { progressRef: React.MutableRefObject<number> }) {
+  return (
+    <RevealGroup
+      position={[RIDGE.x, RIDGE.y - 0.1, 0]}
+      getReveal={() => stageLocal(progressRef.current, 0, 0.12)}
+    >
+      <mesh castShadow receiveShadow>
+        <boxGeometry args={[0.22, 0.22, DEPTH + 0.15]} />
+        <meshStandardMaterial color={STEEL} metalness={0.9} roughness={0.35} />
+      </mesh>
+    </RevealGroup>
   );
 }
 
 function RoofPanel({
   slope,
   segmentIndex,
+  orderIndex,
   progressRef,
 }: {
   slope: Slope;
   segmentIndex: number;
+  orderIndex: number;
   progressRef: React.MutableRefObject<number>;
 }) {
   const t0 = segmentIndex * 0.25;
@@ -156,141 +216,156 @@ function RoofPanel({
   const angle = slopeAngle(slope);
   const normal = slopeOutwardNormal(slope);
   const normalOffset = 0.14;
-  const seedBase = slope.side * 33 + segmentIndex * 3.3;
-  const s1 = seededRandom(seedBase + 11);
-  const s2 = seededRandom(seedBase + 12);
-  const s3 = seededRandom(seedBase + 13);
-  const s4 = seededRandom(seedBase + 14);
-  const s5 = seededRandom(seedBase + 15);
+  const base: [number, number, number] = [
+    mid.x + normal.x * normalOffset,
+    mid.y + normal.y * normalOffset,
+    0,
+  ];
+  const rot: [number, number, number] = [0, 0, angle];
 
-  const ref = usePart(
-    {
-      base: [mid.x + normal.x * normalOffset, mid.y + normal.y * normalOffset, 0],
-      baseRot: [0, 0, angle],
-      scatter: [
-        (s1 - 0.5) * 3.5,
-        3 + s2 * 2,
-        (segmentIndex % 2 === 0 ? -1 : 1) * (2.5 + s3 * 1.5),
-      ],
-      scatterRot: [s4 * 3, s5 * 3, s1 * 2.5],
-    },
-    progressRef
-  );
-
-  const ribCount = 13;
-  const ribs = useMemo(
-    () => Array.from({ length: ribCount }, (_, i) => -1.68 + i * (3.36 / (ribCount - 1))),
-    []
-  );
+  const ribCount = 11;
+  const ribs = Array.from({ length: ribCount }, (_, i) => -1.6 + i * (3.2 / (ribCount - 1)));
+  const fastenerZ = [-1.1, 0, 1.1];
 
   return (
-    <group ref={ref}>
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[segLength - 0.01, 0.05, DEPTH]} />
-        <meshStandardMaterial color={METAL_BARREL} metalness={0.6} roughness={0.55} />
-      </mesh>
-      {ribs.map((rz, i) => (
-        <mesh key={i} position={[0, 0.045, rz]} castShadow>
-          <boxGeometry args={[segLength - 0.02, 0.028, 0.05]} />
-          <meshStandardMaterial color={METAL_DARK} metalness={0.55} roughness={0.6} />
+    <>
+      <RevealGroup
+        position={base}
+        rotation={rot}
+        getReveal={() => staggered(stageLocal(progressRef.current, 0.33, 0.66), orderIndex, 8)}
+      >
+        <mesh castShadow receiveShadow>
+          <boxGeometry args={[segLength - 0.01, 0.05, DEPTH]} />
+          <meshStandardMaterial color={PANEL} metalness={0.55} roughness={0.55} />
         </mesh>
-      ))}
-      <mesh position={[segLength / 2 - 0.01, 0.03, 0]}>
-        <boxGeometry args={[0.015, 0.02, DEPTH]} />
-        <meshStandardMaterial color={CYAN} emissive={CYAN} emissiveIntensity={1.8} toneMapped={false} />
-      </mesh>
-    </group>
+        {ribs.map((rz, i) => (
+          <mesh key={i} position={[0, 0.045, rz]} castShadow>
+            <boxGeometry args={[segLength - 0.02, 0.028, 0.045]} />
+            <meshStandardMaterial color={PANEL_RIB} metalness={0.5} roughness={0.6} />
+          </mesh>
+        ))}
+        {fastenerZ.map((fz, i) => (
+          <mesh key={i} position={[segLength / 2 - 0.12, 0.06, fz]} castShadow>
+            <cylinderGeometry args={[0.022, 0.022, 0.03, 8]} />
+            <meshStandardMaterial color={STEEL_DARK} metalness={0.7} roughness={0.4} />
+          </mesh>
+        ))}
+      </RevealGroup>
+
+      <RevealGroup
+        position={base}
+        rotation={rot}
+        getReveal={() => stageLocal(progressRef.current, 0.68, 0.85)}
+      >
+        <mesh position={[segLength / 2 - 0.01, 0.06, 0]}>
+          <boxGeometry args={[0.015, 0.02, DEPTH]} />
+          <meshStandardMaterial color={CYAN} emissive={CYAN} emissiveIntensity={1.8} toneMapped={false} />
+        </mesh>
+      </RevealGroup>
+    </>
   );
 }
 
-function RidgeCapFlap({ side, progressRef }: { side: -1 | 1; progressRef: React.MutableRefObject<number> }) {
-  const slope = side === -1 ? LEFT_SLOPE : RIGHT_SLOPE;
-  const angle = slopeAngle(slope);
+function RidgeCap({ progressRef }: { progressRef: React.MutableRefObject<number> }) {
+  const getReveal = () => stageLocal(progressRef.current, 0.66, 0.82);
+
+  return (
+    <>
+      {SLOPES.map((slope) => {
+        const angle = slopeAngle(slope);
+        const normal = slopeOutwardNormal(slope);
+        const flapLength = 0.55;
+        const anchor = pointOnSlope(slope, 0.93);
+        return (
+          <RevealGroup
+            key={slope.side}
+            position={[anchor.x + normal.x * 0.05, anchor.y + normal.y * 0.05, 0]}
+            rotation={[0, 0, angle]}
+            getReveal={getReveal}
+          >
+            <mesh castShadow>
+              <boxGeometry args={[flapLength, 0.04, DEPTH + 0.2]} />
+              <meshStandardMaterial color={TRIM} metalness={0.7} roughness={0.4} />
+            </mesh>
+          </RevealGroup>
+        );
+      })}
+      <RevealGroup position={[RIDGE.x, RIDGE.y + 0.13, 0]} rotation={[Math.PI / 2, 0, 0]} getReveal={getReveal}>
+        <mesh castShadow>
+          <cylinderGeometry args={[0.05, 0.05, DEPTH + 0.25, 16]} />
+          <meshStandardMaterial color={CYAN} emissive={CYAN} emissiveIntensity={1.6} toneMapped={false} />
+        </mesh>
+      </RevealGroup>
+    </>
+  );
+}
+
+function EaveFinish({ slope, progressRef }: { slope: Slope; progressRef: React.MutableRefObject<number> }) {
   const normal = slopeOutwardNormal(slope);
-  const flapLength = 0.55;
-  const anchor = pointOnSlope(slope, 0.93);
-
-  const ref = usePart(
-    {
-      base: [anchor.x + normal.x * 0.05, anchor.y + normal.y * 0.05, 0],
-      baseRot: [0, 0, angle],
-      scatter: [side * 1.5, 3.2, side * 2],
-      scatterRot: [side * 1.8, side * 2.6, 1.2],
-    },
-    progressRef
-  );
+  const gutterY = slope.low.y - 0.3;
+  const getReveal = () => stageLocal(progressRef.current, 0.7, 0.88);
 
   return (
-    <group ref={ref}>
-      <mesh castShadow>
-        <boxGeometry args={[flapLength, 0.04, DEPTH + 0.15]} />
-        <meshStandardMaterial color={METAL_TRIM} metalness={0.7} roughness={0.4} />
-      </mesh>
-    </group>
-  );
-}
+    <>
+      {/* fascia trim + glowing seal edge */}
+      <RevealGroup position={[slope.low.x, slope.low.y - 0.18, 0]} getReveal={getReveal}>
+        <mesh castShadow receiveShadow>
+          <boxGeometry args={[0.3, 0.08, DEPTH + 0.1]} />
+          <meshStandardMaterial color={TRIM} metalness={0.7} roughness={0.4} />
+        </mesh>
+        <mesh position={[0.13, 0.042, 0]}>
+          <boxGeometry args={[0.025, 0.02, DEPTH + 0.1]} />
+          <meshStandardMaterial color={CYAN} emissive={CYAN} emissiveIntensity={1.6} toneMapped={false} />
+        </mesh>
+      </RevealGroup>
 
-function RidgeSeam({ progressRef }: { progressRef: React.MutableRefObject<number> }) {
-  const ref = usePart(
-    {
-      base: [RIDGE.x, RIDGE.y + 0.13, 0],
-      baseRot: [Math.PI / 2, 0, 0],
-      scatter: [0, 3.5, 0],
-      scatterRot: [1.8, 2.4, 0],
-    },
-    progressRef
-  );
+      {/* gutter trough */}
+      <RevealGroup
+        position={[slope.low.x + normal.x * 0.05, gutterY, 0]}
+        rotation={[Math.PI / 2, 0, 0]}
+        getReveal={getReveal}
+      >
+        <mesh castShadow receiveShadow>
+          <cylinderGeometry args={[0.09, 0.09, DEPTH + 0.15, 12, 1, false, 0, Math.PI]} />
+          <meshStandardMaterial color={TRIM} metalness={0.6} roughness={0.45} side={THREE.DoubleSide} />
+        </mesh>
+      </RevealGroup>
 
-  return (
-    <group ref={ref}>
-      <mesh castShadow>
-        <cylinderGeometry args={[0.05, 0.05, DEPTH + 0.2, 16]} />
-        <meshStandardMaterial color={CYAN} emissive={CYAN} emissiveIntensity={1.6} toneMapped={false} />
-      </mesh>
-    </group>
-  );
-}
-
-function EaveFascia({ slope, progressRef }: { slope: Slope; progressRef: React.MutableRefObject<number> }) {
-  const normal = slopeOutwardNormal(slope);
-
-  const ref = usePart(
-    {
-      base: [slope.low.x, slope.low.y - 0.18, 0],
-      baseRot: [0, 0, 0],
-      scatter: [normal.x * 2.2, -1.6 + normal.y * 1.4, slope.side * 2.4],
-      scatterRot: [slope.side * 1.6, slope.side * 2.2, 1.4],
-    },
-    progressRef
-  );
-
-  return (
-    <group ref={ref}>
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[0.3, 0.08, DEPTH + 0.1]} />
-        <meshStandardMaterial color={METAL_TRIM} metalness={0.7} roughness={0.4} />
-      </mesh>
-      <mesh position={[0.13, 0.042, 0]}>
-        <boxGeometry args={[0.025, 0.02, DEPTH + 0.1]} />
-        <meshStandardMaterial color={CYAN} emissive={CYAN} emissiveIntensity={1.6} toneMapped={false} />
-      </mesh>
-    </group>
+      {/* downpipe */}
+      <RevealGroup
+        position={[slope.low.x + normal.x * 0.16, (gutterY + GROUND_Y) / 2, 1.7]}
+        getReveal={getReveal}
+      >
+        <mesh castShadow>
+          <cylinderGeometry args={[0.045, 0.045, gutterY - GROUND_Y, 10]} />
+          <meshStandardMaterial color={TRIM} metalness={0.6} roughness={0.4} />
+        </mesh>
+      </RevealGroup>
+    </>
   );
 }
 
 function RoofSide({ slope, progressRef }: { slope: Slope; progressRef: React.MutableRefObject<number> }) {
   return (
     <>
+      {COLUMN_Z.map((z) => (
+        <Column key={z} slope={slope} z={z} progressRef={progressRef} />
+      ))}
       <Rafter slope={slope} z={-1.8} progressRef={progressRef} />
       <Rafter slope={slope} z={1.8} progressRef={progressRef} />
       {[0, 0.25, 0.5, 0.75, 1].map((t) => (
         <Purlin key={t} slope={slope} t={t} progressRef={progressRef} />
       ))}
       {[0, 1, 2, 3].map((i) => (
-        <RoofPanel key={i} slope={slope} segmentIndex={i} progressRef={progressRef} />
+        <RoofPanel
+          key={i}
+          slope={slope}
+          segmentIndex={i}
+          orderIndex={i * 2 + (slope.side === -1 ? 0 : 1)}
+          progressRef={progressRef}
+        />
       ))}
-      <RidgeCapFlap side={slope.side} progressRef={progressRef} />
-      <EaveFascia slope={slope} progressRef={progressRef} />
+      <EaveFinish slope={slope} progressRef={progressRef} />
     </>
   );
 }
@@ -306,9 +381,10 @@ export default function RoofStructure({ progressRef }: RoofStructureProps) {
 
   return (
     <group ref={outer} rotation={[0.05, -0.35, 0]}>
+      <RidgeBeam progressRef={progressRef} />
       <RoofSide slope={LEFT_SLOPE} progressRef={progressRef} />
       <RoofSide slope={RIGHT_SLOPE} progressRef={progressRef} />
-      <RidgeSeam progressRef={progressRef} />
+      <RidgeCap progressRef={progressRef} />
     </group>
   );
 }
