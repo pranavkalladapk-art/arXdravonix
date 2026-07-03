@@ -40,9 +40,9 @@ export default function RoofingShowcase() {
     const trigger = ScrollTrigger.create({
       trigger: sectionRef.current,
       start: "top top",
-      end: "+=4200",
+      end: "+=3000",
       pin: true,
-      scrub: 1,
+      scrub: 0.6,
       onUpdate: (self) => {
         progressRef.current = self.progress;
         const next = Math.min(stages.length - 1, Math.floor(self.progress * stages.length));
