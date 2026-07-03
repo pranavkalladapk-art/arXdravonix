@@ -19,13 +19,12 @@ export default function SmoothScrollProvider({
       "(prefers-reduced-motion: reduce)"
     ).matches;
 
-        const lenis = new Lenis({
+    const lenis = new Lenis({
       duration: prefersReducedMotion ? 0.1 : 1.4,
       easing: (t: number) => 1 - Math.pow(1 - t, 3),
       smoothWheel: true,
       wheelMultiplier: 0.65,
       touchMultiplier: 0.9,
-    });
     });
     lenisRef.current = lenis;
 
