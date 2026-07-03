@@ -44,7 +44,7 @@ export default function RoofingShowcase() {
       pin: true,
       scrub: 1,
       onUpdate: (self) => {
-        progressRef.current = self.progress < 0.7 ? self.progress / 0.7 : 1;
+        progressRef.current = self.progress;
         const next = Math.min(stages.length - 1, Math.floor(self.progress * stages.length));
         setStage((prev) => (prev !== next ? next : prev));
       },
