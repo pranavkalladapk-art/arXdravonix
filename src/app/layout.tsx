@@ -5,6 +5,7 @@ import SmoothScrollProvider from "@/components/layout/SmoothScrollProvider";
 import CursorGlow from "@/components/layout/CursorGlow";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
+import PlaceholderNotice from "@/components/layout/PlaceholderNotice";
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-space-grotesk",
@@ -72,6 +73,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-bg text-text selection:bg-primary">
         <SmoothScrollProvider>
           <CursorGlow />
+          <PlaceholderNotice />
           <Navbar />
           <main className="relative z-10">{children}</main>
           <Footer />
