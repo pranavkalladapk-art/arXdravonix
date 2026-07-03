@@ -6,6 +6,10 @@ import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import SceneErrorBoundary from "@/components/three/SceneErrorBoundary";
+import SceneFallback from "@/components/three/SceneFallback";
+import { isWebglSupported } from "@/lib/webgl";
+import { useInView } from "@/lib/useInView";
 
 const RoofScene = dynamic(() => import("@/components/three/RoofScene"), {
   ssr: false,
@@ -35,6 +39,8 @@ export default function RoofingShowcase() {
   const sectionRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef(0);
   const [stage, setStage] = useState(0);
+  const [webglOk] = useState(isWebglSupported);
+  const inView = useInView(sectionRef, "500px");
 
   useEffect(() => {
     const trigger = ScrollTrigger.create({
@@ -60,7 +66,13 @@ export default function RoofingShowcase() {
     >
       <div className="blueprint-grid pointer-events-none absolute inset-0 opacity-30" />
       <div className="absolute inset-0">
-        <RoofScene progressRef={progressRef} />
+        {webglOk && inView ? (
+          <SceneErrorBoundary fallback={<SceneFallback />}>
+            <RoofScene progressRef={progressRef} />
+          </SceneErrorBoundary>
+        ) : (
+          <SceneFallback />
+        )}
       </div>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_60%_50%,transparent_30%,rgba(5,5,5,0.75)_100%)]" />
 

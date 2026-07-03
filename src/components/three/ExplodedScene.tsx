@@ -16,7 +16,7 @@ export default function ExplodedScene({
   return (
     <Canvas
       dpr={isMobile ? [1, 1.25] : [1, 1.75]}
-      gl={{ antialias: !isMobile, powerPreference: "high-performance" }}
+      gl={{ antialias: !isMobile, powerPreference: isMobile ? "default" : "high-performance", failIfMajorPerformanceCaveat: false }}
       camera={{ position: [0, 0.5, 11], fov: 32 }}
       shadows={!isMobile}
     >
