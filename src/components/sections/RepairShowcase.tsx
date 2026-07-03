@@ -40,7 +40,7 @@ export default function RepairShowcase() {
     const trigger = ScrollTrigger.create({
       trigger: sectionRef.current,
       start: "top top",
-      end: "+=2600",
+      end: "+=4200",
       pin: true,
       scrub: 1,
       onUpdate: (self) => {
