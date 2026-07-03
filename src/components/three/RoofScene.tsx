@@ -16,7 +16,7 @@ export default function RoofScene({
   return (
     <Canvas
       dpr={isMobile ? [1, 1.25] : [1, 1.75]}
-      gl={{ antialias: !isMobile, powerPreference: "high-performance" }}
+      gl={{ antialias: !isMobile, powerPreference: isMobile ? "default" : "high-performance", failIfMajorPerformanceCaveat: false }}
       camera={{ position: [2, 1, 11], fov: 34 }}
       shadows={!isMobile}
     >
