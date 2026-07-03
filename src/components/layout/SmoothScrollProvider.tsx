@@ -20,11 +20,11 @@ export default function SmoothScrollProvider({
     ).matches;
 
     const lenis = new Lenis({
-      duration: prefersReducedMotion ? 0.1 : 1.4,
+      duration: prefersReducedMotion ? 0.1 : 1.15,
       easing: (t: number) => 1 - Math.pow(1 - t, 3),
       smoothWheel: true,
-      wheelMultiplier: 0.65,
-      touchMultiplier: 0.9,
+      wheelMultiplier: 0.85,
+      touchMultiplier: 1,
     });
     lenisRef.current = lenis;
 
