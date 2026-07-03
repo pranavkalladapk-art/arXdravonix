@@ -18,7 +18,7 @@ export default function HeroScene({
   return (
     <Canvas
       dpr={isMobile ? [1, 1.25] : [1, 1.75]}
-      gl={{ antialias: !isMobile, powerPreference: "high-performance" }}
+      gl={{ antialias: !isMobile, powerPreference: isMobile ? "default" : "high-performance", failIfMajorPerformanceCaveat: false }}
       camera={{ position: [2.2, 0.2, 12.5], fov: 30 }}
       shadows={!isMobile}
     >
