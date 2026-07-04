@@ -23,6 +23,21 @@ export default function Hero() {
   const scrollRef = useRef(0);
   const pointerRef = useRef({ x: 0, y: 0 });
   const [webglOk] = useState(isWebglSupported);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const ric = window.requestIdleCallback as
+      | ((cb: () => void, opts?: { timeout: number }) => number)
+      | undefined;
+    const cic = window.cancelIdleCallback as ((id: number) => void) | undefined;
+
+    const id = ric ? ric(() => setReady(true), { timeout: 1200 }) : window.setTimeout(() => setReady(true), 250);
+
+    return () => {
+      if (ric && cic) cic(id);
+      else window.clearTimeout(id);
+    };
+  }, []);
 
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
@@ -58,7 +73,7 @@ export default function Hero() {
 
       {/* 3D Scene */}
       <div className="absolute inset-0">
-        {webglOk ? (
+        {webglOk && ready ? (
           <SceneErrorBoundary fallback={<SceneFallback />}>
             <HeroScene scrollRef={scrollRef} pointerRef={pointerRef} />
           </SceneErrorBoundary>
