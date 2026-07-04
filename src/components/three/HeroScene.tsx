@@ -17,7 +17,7 @@ export default function HeroScene({
 
   return (
     <Canvas
-      dpr={isMobile ? [1, 1.25] : [1, 1.75]}
+      dpr={isMobile ? [1, 1.25] : [1, 1.5]}
       gl={{ antialias: !isMobile, powerPreference: isMobile ? "default" : "high-performance", failIfMajorPerformanceCaveat: false }}
       camera={{ position: [2.2, 0.2, 12.5], fov: 30 }}
       shadows={!isMobile}
@@ -54,7 +54,7 @@ export default function HeroScene({
           <Sparkles count={40} scale={[14, 10, 8]} size={1} speed={0.15} opacity={0.25} color="#ffffff" />
         )}
 
-        <Environment resolution={256}>
+        <Environment resolution={64}>
           <group>
             <Lightformer
               intensity={2.5}
